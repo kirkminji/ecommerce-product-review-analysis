@@ -1,0 +1,15 @@
+# Virtual Environment
+myenv/
+venv/
+env/
+.env
+.venv/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.log
+kyobo_reviews.csv
