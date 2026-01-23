@@ -93,12 +93,74 @@ def calculate_weekly_viral_index(df):
         ma_deviation.clip(upper=300).fillna(0) * 0.4 +
         z_scores.clip(lower=-3, upper=3).fillna(0) * 10 * 0.2
     )
+
+    # 4. 노이즈 제거 및 지속성 반영 (Smoothing)
+    # 2주 이동평균을 통해 뉴스의 '잔상'과 '누적관심도' 반영
+    viral_index_smoothed = viral_index.rolling(window=2, min_periods=1).mean()
     
-    print(f"  >> 계산 완료: {len(weekly_counts)}개 주차 x {len(weekly_counts.columns)}개 카테고리")
-    return weekly_counts, viral_index
+    print(f"  >> 계산 완료: {len(weekly_counts)}개 주차 x {len(weekly_counts.columns)}개 카테고리 (Smoothing 적용)")
+    return weekly_counts, viral_index, viral_index_smoothed
 
 def main():
     print("=" * 60)
+    print("[주간 뉴스 바이럴 지수 산출 - Smoothing 추가]")
+    print("=" * 60)
+    
+    # 1. 데이터 로드
+    news_df = fetch_news_data_from_db()
+    if news_df is None:
+        return
+    
+    # 2. 지수 계산
+    counts_df, viral_df, viral_smoothed_df = calculate_weekly_viral_index(news_df)
+    
+    # 3. 데이터 구조 정리 (분석용 Long format)
+    def to_long(df, name):
+        long = df.stack().reset_index()
+        long.columns = ['end_date', 'category', name]
+        return long
+
+    viral_long = to_long(viral_df, 'viral_index')
+    viral_smoothed_long = to_long(viral_smoothed_df, 'viral_index_smoothed')
+    counts_long = to_long(counts_df, 'article_count')
+    
+    # 데이터 결합
+    result_df = pd.merge(viral_long, viral_smoothed_long, on=['end_date', 'category'])
+    result_df = pd.merge(result_df, counts_long, on=['end_date', 'category'])
+    
+    # 4. 베스트셀러 테이블과 매칭을 위한 ymw 및 bestseller_week 포맷 생성
+    result_df['start_date'] = result_df['end_date'] - pd.Timedelta(days=6)
+    
+    def generate_ymw_val(dt):
+        year = dt.year
+        month = dt.month
+        week = (dt.day - 1) // 7 + 1
+        return f"{year}{month:02d}{week}"
+    
+    result_df['ymw'] = result_df['end_date'].apply(generate_ymw_val)
+    result_df['bestseller_week'] = (
+        result_df['start_date'].dt.strftime('%Y.%m.%d') + 
+        " ~ " + 
+        result_df['end_date'].dt.strftime('%Y.%m.%d')
+    )
+    
+    # 컬럼 순서 조정
+    result_df = result_df[['ymw', 'bestseller_week', 'category', 'viral_index', 'viral_index_smoothed', 'article_count', 'start_date', 'end_date']]
+    
+    # 5. CSV 저장
+    output_dir = "/Users/minzzy/Desktop/statrack/book-review-analysis/analysis"
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+        
+    output_path = os.path.join(output_dir, "weekly_news_viral_index.csv")
+    result_df.to_csv(output_path, index=False, encoding='utf-8-sig')
+    
+    print("\n" + "=" * 60)
+    print(f"✅ 작업 완료: {output_path}")
+    print(f"   - 데이터 기간: {result_df['start_date'].min().date()} ~ {result_df['end_date'].max().date()}")
+    print(f"   - 총 데이터 행: {len(result_df)}개")
+    print("=" * 60)
+
     print("[주간 뉴스 바이럴 지수 산출 - 수~화 기준]")
     print("=" * 60)
     
